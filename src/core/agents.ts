@@ -9,6 +9,7 @@ export type RawAgent = {
   pane_id?: string;
   workspace_id?: string;
   tab_id?: string;
+  terminal_title_stripped?: string;
 };
 
 export type Agent = {
@@ -18,6 +19,7 @@ export type Agent = {
   paneId: string;
   workspaceId: string;
   focused: boolean;
+  terminalTitle: string;
 };
 
 const KNOWN: ReadonlySet<string> = new Set(["idle", "working", "blocked", "done", "unknown"]);
@@ -35,6 +37,7 @@ function toAgent(r: RawAgent): Agent | null {
     paneId: r.pane_id,
     workspaceId: typeof r.workspace_id === "string" ? r.workspace_id : "",
     focused: r.focused === true,
+    terminalTitle: typeof r.terminal_title_stripped === "string" ? r.terminal_title_stripped : "",
   };
 }
 
@@ -77,7 +80,19 @@ function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
 
-export function labelFor(agent: Agent, peers: Agent[], max = 24): string {
+export type DisplayMode = "project" | "title";
+
+export function labelFor(
+  agent: Agent,
+  peers: Agent[],
+  display: DisplayMode = "project",
+  max = 24,
+): string {
+  if (display === "title") {
+    const title = agent.terminalTitle.trim();
+    if (title) return truncate(title, max);
+    // No title available — fall through to the project-name label.
+  }
   const base = basename(agent.cwd) || agent.name;
   // Agents whose project name collides get a stable 1-based number (#1, #2, …),
   // ordered by paneId, so duplicates are told apart at a glance.

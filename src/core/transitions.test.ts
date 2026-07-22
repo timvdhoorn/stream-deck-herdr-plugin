@@ -4,7 +4,7 @@ import { detectFlips } from "./transitions";
 import type { Agent } from "./agents";
 
 const mk = (status: Agent["status"], paneId: string): Agent => ({
-  name: "claude", status, cwd: "/x/proj", paneId, workspaceId: "w1", focused: false,
+  name: "claude", status, cwd: "/x/proj", paneId, workspaceId: "w1", focused: false, terminalTitle: "",
 });
 
 test("detects transitions into blocked/done", () => {

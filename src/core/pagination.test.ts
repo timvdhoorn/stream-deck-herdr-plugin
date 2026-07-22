@@ -19,6 +19,7 @@ const mk = (status: Agent["status"], paneId: string): Agent => ({
   paneId,
   workspaceId: "w1",
   focused: false,
+  terminalTitle: "",
 });
 
 test("PAGE_SIZE is 5 and pageCount has a floor of 1", () => {

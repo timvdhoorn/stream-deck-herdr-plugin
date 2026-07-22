@@ -15,6 +15,7 @@ test("normalize maps fields and stable-sorts by workspace then pane", () => {
     paneId: "w5:p1",
     workspaceId: "w5",
     focused: false,
+    terminalTitle: "",
   });
 });
 
@@ -66,18 +67,45 @@ test("labelFor uses cwd basename, truncates, disambiguates duplicates", () => {
   const agents = normalize(raw);
   const lmms = agents.find((a) => a.paneId === "w7:p2")!;
   expect(labelFor(lmms, agents)).toBe("LMManagementSystem"); // full basename (<= 24 chars)
-  const dupA = { name: "c", status: "idle", cwd: "/x/app", paneId: "w1:p1", workspaceId: "w1", focused: false } as const;
-  const dupB = { name: "c", status: "idle", cwd: "/y/app", paneId: "w2:p3", workspaceId: "w2", focused: false } as const;
+  const dupA = { name: "c", status: "idle", cwd: "/x/app", paneId: "w1:p1", workspaceId: "w1", focused: false, terminalTitle: "" } as const;
+  const dupB = { name: "c", status: "idle", cwd: "/y/app", paneId: "w2:p3", workspaceId: "w2", focused: false, terminalTitle: "" } as const;
   expect(labelFor(dupA, [dupA, dupB])).toBe("app #1");
 });
 
 test("labelFor numbers long duplicate names so they differ", () => {
-  const a = { name: "claude", status: "idle", cwd: "/x/Loftware-Automation-Proxy", paneId: "w5:p1", workspaceId: "w5", focused: false } as const;
-  const b = { name: "claude", status: "idle", cwd: "/y/Loftware-Automation-Proxy", paneId: "w5:p9", workspaceId: "w5", focused: false } as const;
+  const a = { name: "claude", status: "idle", cwd: "/x/Loftware-Automation-Proxy", paneId: "w5:p1", workspaceId: "w5", focused: false, terminalTitle: "" } as const;
+  const b = { name: "claude", status: "idle", cwd: "/y/Loftware-Automation-Proxy", paneId: "w5:p9", workspaceId: "w5", focused: false, terminalTitle: "" } as const;
   const la = labelFor(a, [a, b]);
   const lb = labelFor(b, [a, b]);
   expect(la.endsWith("#1")).toBe(true);
   expect(lb.endsWith("#2")).toBe(true);
   expect(la).not.toBe(lb);
   expect(la.length).toBeLessThanOrEqual(24);
+});
+
+test("normalize maps terminal_title_stripped to terminalTitle, empty when missing", () => {
+  const agents = normalize([
+    { agent: "x", agent_status: "working", cwd: "/a/b", pane_id: "w1:p1", workspace_id: "w1", terminal_title_stripped: "Fix login bug" },
+    { agent: "y", agent_status: "working", cwd: "/c/d", pane_id: "w1:p2", workspace_id: "w1" },
+  ] as RawAgent[]);
+  expect(agents.find((a) => a.paneId === "w1:p1")!.terminalTitle).toBe("Fix login bug");
+  expect(agents.find((a) => a.paneId === "w1:p2")!.terminalTitle).toBe("");
+});
+
+test("labelFor title mode shows the terminal title", () => {
+  const a = { name: "claude", status: "working", cwd: "/x/proj", paneId: "w1:p1", workspaceId: "w1", focused: false, terminalTitle: "Fix login bug" } as const;
+  expect(labelFor(a, [a], "title")).toBe("Fix login bug");
+});
+
+test("labelFor title mode truncates long titles with an ellipsis", () => {
+  const longTitle = "This is an extremely long terminal title that overflows";
+  const a = { name: "claude", status: "working", cwd: "/x/proj", paneId: "w1:p1", workspaceId: "w1", focused: false, terminalTitle: longTitle } as const;
+  const label = labelFor(a, [a], "title");
+  expect(label.length).toBeLessThanOrEqual(24);
+  expect(label.endsWith("…")).toBe(true);
+});
+
+test("labelFor title mode falls back to project name when terminalTitle is empty", () => {
+  const a = { name: "claude", status: "working", cwd: "/x/myproj", paneId: "w1:p1", workspaceId: "w1", focused: false, terminalTitle: "" } as const;
+  expect(labelFor(a, [a], "title")).toBe("myproj");
 });

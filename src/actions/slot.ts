@@ -12,10 +12,10 @@ import type { AgentStore } from "../core/store";
 import type { HerdrClient } from "../herdr/client";
 import type { TerminalActivator } from "../os/terminal";
 import { pageSlice, PAGE_SIZE } from "../core/pagination";
-import { labelFor } from "../core/agents";
+import { labelFor, type DisplayMode } from "../core/agents";
 import { renderKeySvg } from "../core/render";
 
-type SlotSettings = { slotIndex?: number };
+type SlotSettings = { slotIndex?: number; display?: DisplayMode };
 
 // Press-length threshold: below this a key press focuses the agent, at/above it
 // the press toggles a pin.
@@ -24,6 +24,7 @@ const LONG_PRESS_MS = 400;
 @action({ UUID: "dev.timvdhoorn.herdr-agents.slot" })
 export class AgentSlotAction extends SingletonAction<SlotSettings> {
   readonly #slots = new Map<string, number>(); // action instance id -> slot index
+  readonly #displays = new Map<string, DisplayMode>(); // action instance id -> display mode
   readonly #pressStart = new Map<string, number>(); // action instance id -> keydown timestamp
 
   constructor(
@@ -36,16 +37,19 @@ export class AgentSlotAction extends SingletonAction<SlotSettings> {
 
   override onWillAppear(ev: WillAppearEvent<SlotSettings>): void {
     this.#slots.set(ev.action.id, Number(ev.payload.settings.slotIndex ?? 0));
+    this.#displays.set(ev.action.id, ev.payload.settings.display ?? "project");
     this.renderAll();
   }
 
   override onDidReceiveSettings(ev: DidReceiveSettingsEvent<SlotSettings>): void {
     this.#slots.set(ev.action.id, Number(ev.payload.settings.slotIndex ?? 0));
+    this.#displays.set(ev.action.id, ev.payload.settings.display ?? "project");
     this.renderAll();
   }
 
   override onWillDisappear(ev: WillDisappearEvent<SlotSettings>): void {
     this.#slots.delete(ev.action.id);
+    this.#displays.delete(ev.action.id);
   }
 
   override onKeyDown(ev: KeyDownEvent<SlotSettings>): void {
@@ -102,13 +106,14 @@ export class AgentSlotAction extends SingletonAction<SlotSettings> {
     this.actions.forEach((a) => {
       if (!a.isKey()) return;
       const index = this.#slots.get(a.id) ?? 0;
+      const display = this.#displays.get(a.id) ?? "project";
       const agent = visible[index];
       void a.setTitle("");
       void a.setImage(
         renderKeySvg(
           agent
             ? {
-                label: labelFor(agent, agents),
+                label: labelFor(agent, agents, display),
                 status: agent.status,
                 agent: agent.name,
                 pinned: this.store.isPinned(agent.paneId),
