@@ -32,6 +32,20 @@ test("focus runs `herdr agent focus <paneId>`", async () => {
   expect(calls[0]).toEqual(["herdr", "agent", "focus", "wJ:p1"]);
 });
 
+test("socketPath getter targets the CLI via HERDR_SOCKET_PATH", async () => {
+  const envs: (Record<string, string> | undefined)[] = [];
+  const run: RunFn = async (_cmd, _args, extraEnv) => {
+    envs.push(extraEnv);
+    return "";
+  };
+  let sock: string | undefined;
+  const client = createHerdrClient({ run, socketPath: () => sock });
+  await client.focus("w1:p1");
+  sock = "/tmp/fwd.sock";
+  await client.focus("w1:p1");
+  expect(envs).toEqual([undefined, { HERDR_SOCKET_PATH: "/tmp/fwd.sock" }]);
+});
+
 test("notify runs `herdr notification show` with body + sound", async () => {
   const calls: string[][] = [];
   const run: RunFn = async (cmd, args) => { calls.push([cmd, ...args]); return ""; };

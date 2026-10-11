@@ -76,15 +76,47 @@ export type EventsClient = { start(): void; stop(): void };
 
 // Calls onChange() whenever herdr emits a subscribed event line (and once on the
 // subscribe ack). Auto-reconnects with exponential backoff. Never throws.
+// Restartable: each start() opens a new epoch, so callbacks and reconnect
+// timers from an earlier lifecycle (a destroyed socket's delayed close, a
+// pending backoff timer) can never open a second connection alongside the
+// current one.
 export function createHerdrEvents(opts: { onChange: () => void; socketPath?: string }): EventsClient {
   const sockPath = opts.socketPath ?? herdrSocketPath();
   let stopped = false;
   let conn: net.Socket | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let epoch = 0;
   let backoff = RECONNECT_MIN_MS;
 
-  const connect = (): void => {
-    if (stopped) return;
-    const c = net.createConnection(sockPath);
+  const clearTimer = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+
+  const scheduleReconnect = (myEpoch: number): void => {
+    if (stopped || myEpoch !== epoch) return;
+    const wait = backoff;
+    backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
+    clearTimer();
+    timer = setTimeout(() => {
+      timer = null;
+      connect(myEpoch);
+    }, wait);
+  };
+
+  const connect = (myEpoch: number): void => {
+    if (stopped || myEpoch !== epoch) return;
+    let c: net.Socket;
+    try {
+      c = net.createConnection(sockPath);
+    } catch {
+      // Some runtimes (Bun) raise connect errors synchronously, before the
+      // error listener below exists. Treat it like any failed attempt.
+      scheduleReconnect(myEpoch);
+      return;
+    }
     conn = c;
     let buffer = "";
     const relevant = createRelevanceFilter();
@@ -100,12 +132,10 @@ export function createHerdrEvents(opts: { onChange: () => void; socketPath?: str
       if (fed.lines.filter(relevant).length > 0) opts.onChange();
     });
     const reconnect = (): void => {
-      if (stopped) return;
+      if (stopped || myEpoch !== epoch) return;
       c.removeAllListeners();
       if (conn === c) conn = null;
-      const wait = backoff;
-      backoff = Math.min(backoff * 2, RECONNECT_MAX_MS);
-      setTimeout(connect, wait);
+      scheduleReconnect(myEpoch);
     };
     c.on("error", reconnect);
     c.on("close", reconnect);
@@ -114,10 +144,17 @@ export function createHerdrEvents(opts: { onChange: () => void; socketPath?: str
   return {
     start: () => {
       stopped = false;
-      connect();
+      epoch += 1;
+      backoff = RECONNECT_MIN_MS;
+      clearTimer();
+      conn?.destroy(); // defensive: a start without stop must not leak the old socket
+      conn = null;
+      connect(epoch);
     },
     stop: () => {
       stopped = true;
+      epoch += 1;
+      clearTimer();
       conn?.destroy();
       conn = null;
     },

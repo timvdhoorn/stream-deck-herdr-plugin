@@ -20,5 +20,27 @@
         <option value="title">Terminal title</option>
       </sdpi-select>
     </sdpi-item>
+    <!-- Connection settings are global: shared by every key of this plugin. -->
+    <sdpi-item label="SSH remote">
+      <sdpi-textfield
+        setting="sshTarget"
+        global
+        placeholder="user@host — leave empty for local herdr"
+      ></sdpi-textfield>
+    </sdpi-item>
+    <sdpi-item label="Remote socket">
+      <sdpi-textfield
+        setting="remoteSocketPath"
+        global
+        placeholder="~/.config/herdr/herdr.sock (default)"
+      ></sdpi-textfield>
+    </sdpi-item>
+    <sdpi-item label="">
+      <p style="margin: 0; font-size: 8pt; color: #969696">
+        Remote needs key-based SSH (no password prompt):
+        <code>ssh -o BatchMode=yes &lt;target&gt; 'echo ok'</code> must print
+        "ok". See README &rsaquo; Remote herdr over SSH.
+      </p>
+    </sdpi-item>
   </body>
 </html>

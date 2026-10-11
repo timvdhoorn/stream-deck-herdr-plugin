@@ -2,7 +2,10 @@
 import { normalize, orderForDisplay, type Agent, type RawAgent } from "./agents";
 import { clampPage, pageCount } from "./pagination";
 
-export type StoreState = { agents: Agent[]; page: number };
+// `healthy` is true only while the agent list reflects a successful fetch —
+// false initially and after a failure wipe, so consumers can tell "empty
+// because the server is unreachable" from "genuinely no agents".
+export type StoreState = { agents: Agent[]; page: number; healthy: boolean };
 
 export type AgentStore = {
   getState(): StoreState;
@@ -12,6 +15,7 @@ export type AgentStore = {
   togglePin(paneId: string): void;
   isPinned(paneId: string): boolean;
   pollNow(): Promise<void>;
+  reset(): void;
   start(intervalMs?: number): void;
   stop(): void;
 };
@@ -21,7 +25,7 @@ export function createAgentStore(opts: {
   pageSize?: number;
 }): AgentStore {
   const pageSize = opts.pageSize ?? 5;
-  let state: StoreState = { agents: [], page: 0 };
+  let state: StoreState = { agents: [], page: 0, healthy: false };
   // Full normalized list (includes idle) so pinned-idle agents can resurface;
   // `pinned` is paneIds in pin order (in-memory, reset on plugin restart).
   let allAgents: Agent[] = [];
@@ -29,6 +33,9 @@ export function createAgentStore(opts: {
   let hasLastGood = false;
   let failStreak = 0;
   let inFlight = false;
+  // Bumped by reset(): a fetch that started before it belongs to the previous
+  // connection and its result is discarded.
+  let generation = 0;
   let timer: ReturnType<typeof setInterval> | null = null;
   const subs = new Set<(s: StoreState) => void>();
 
@@ -39,9 +46,9 @@ export function createAgentStore(opts: {
   };
   // Re-derive the displayed list (pinned-first, idle hidden) from the current
   // raw list + pins, clamping the page to the new length.
-  const recompute = () => {
+  const recompute = (extra: Partial<StoreState> = {}) => {
     const agents = orderForDisplay(allAgents, pinned);
-    set({ agents, page: clampPage(state.page, pageCount(agents.length, pageSize)) });
+    set({ ...extra, agents, page: clampPage(state.page, pageCount(agents.length, pageSize)) });
   };
 
   const store: AgentStore = {
@@ -70,21 +77,35 @@ export function createAgentStore(opts: {
     async pollNow() {
       if (inFlight) return;
       inFlight = true;
+      const gen = generation;
       try {
-        allAgents = normalize(await opts.fetchAgents());
+        const fetched = normalize(await opts.fetchAgents());
+        if (gen !== generation) return;
+        allAgents = fetched;
         hasLastGood = true;
         failStreak = 0;
-        recompute();
+        recompute({ healthy: true });
       } catch {
+        if (gen !== generation) return;
         failStreak += 1;
         if (!(failStreak === 1 && hasLastGood)) {
           hasLastGood = false;
           allAgents = [];
-          recompute();
+          recompute({ healthy: false });
         }
       } finally {
-        inFlight = false;
+        if (gen === generation) inFlight = false;
       }
+    },
+    // Forget everything fetched so far (the connection now points at another
+    // server): an empty, unhealthy snapshot until the next successful fetch.
+    reset() {
+      generation += 1;
+      inFlight = false;
+      hasLastGood = false;
+      failStreak = 0;
+      allAgents = [];
+      recompute({ healthy: false });
     },
     start(intervalMs = 1000) {
       if (timer) return;

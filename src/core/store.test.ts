@@ -46,6 +46,28 @@ test("a single failure keeps last-good; a second failure empties", async () => {
   expect(store.getState().agents).toHaveLength(0); // emptied
 });
 
+test("healthy is false until a fetch succeeds and after a failure wipe", async () => {
+  let mode: "ok" | "fail" = "fail";
+  const store = createAgentStore({
+    fetchAgents: async () => {
+      if (mode === "fail") throw new Error("unreachable");
+      return six;
+    },
+  });
+  expect(store.getState().healthy).toBe(false); // initial
+  await store.pollNow();
+  await store.pollNow();
+  expect(store.getState().healthy).toBe(false); // wiped, still unhealthy
+  mode = "ok";
+  await store.pollNow();
+  expect(store.getState().healthy).toBe(true);
+  mode = "fail";
+  await store.pollNow();
+  expect(store.getState().healthy).toBe(true); // single failure keeps last-good
+  await store.pollNow();
+  expect(store.getState().healthy).toBe(false); // second failure wipes
+});
+
 test("idle agents are filtered out of the store", async () => {
   const mixed: RawAgent[] = [
     { agent: "a", agent_status: "working", cwd: "/x/a", pane_id: "w1:p1", workspace_id: "w1" },
@@ -90,4 +112,26 @@ test("page clamps when the agent list shrinks", async () => {
   agents = six.slice(0, 3); // now 1 page
   await store.pollNow();
   expect(store.getState().page).toBe(0);
+});
+
+test("reset wipes to unhealthy and discards a fetch that was in flight", async () => {
+  let release: (v: RawAgent[]) => void = () => {};
+  let calls = 0;
+  const store = createAgentStore({
+    fetchAgents: () => {
+      calls += 1;
+      return calls === 2 ? new Promise((r) => (release = r)) : Promise.resolve(six);
+    },
+  });
+  await store.pollNow();
+  expect(store.getState().healthy).toBe(true);
+  const stale = store.pollNow(); // in flight against the old server
+  store.reset();
+  expect(store.getState()).toMatchObject({ agents: [], healthy: false });
+  const fresh = store.pollNow(); // must not be dropped as "in flight"
+  release(six.slice(0, 1));
+  await stale;
+  await fresh;
+  expect(calls).toBe(3);
+  expect(store.getState().agents).toHaveLength(6); // stale 1-agent result discarded
 });

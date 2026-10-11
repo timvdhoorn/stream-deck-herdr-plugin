@@ -109,6 +109,85 @@ your keys. The recommended 6-key Mini layout:
 Prefer a flat, no-paging layout? Place six **Agent Slot** keys (`slotIndex` 0–5)
 and skip the pager.
 
+## Remote herdr over SSH
+
+By default the plugin talks to the herdr server on the machine the Stream Deck
+is attached to. If your agents run on another box (and you attach to them with
+`herdr --remote <host>`), point the plugin at that box instead. Setup is three
+steps; step 1 is one-time SSH plumbing.
+
+### 1. One-time: key-based SSH to the agent box
+
+The plugin runs `ssh` in the background with `BatchMode=yes` — it can never
+prompt for a password, so password-only SSH will not work. From the Stream
+Deck machine:
+
+```bash
+# create a key if you don't have one (Enter twice = no passphrase)
+ssh-keygen -t ed25519
+
+# install it on the agent box (enter your password one last time)
+ssh-copy-id me@agentbox
+
+# verify — this is exactly what the plugin does, and it must print "ok"
+# with no password or host-key prompt:
+ssh -o BatchMode=yes me@agentbox 'echo ok'
+```
+
+If that last command prints `ok`, the plugin will connect. Optional but
+recommended: give the box an alias in `~/.ssh/config` and use the alias
+everywhere (the plugin setting, `herdr --remote`, plain `ssh`):
+
+```
+Host agentbox
+    HostName 192.168.1.50
+    User me
+```
+
+You also need herdr installed on the Stream Deck machine: the CLI runs
+locally and talks to the remote server's socket, so keep the two herdr
+versions compatible.
+
+### 2. Point the plugin at the box
+
+1. Open any **Agent Slot** key's Property Inspector.
+2. Set **SSH remote** to the target from step 1 (`me@agentbox`, or the
+   `agentbox` alias). These settings are global — set once, applies to every
+   key.
+3. Leave **Remote socket** empty unless the remote herdr uses a non-default
+   socket path (`~/.config/herdr/herdr.sock`).
+
+### 3. Verify
+
+Keys should populate with the remote agents within a few seconds, and status
+changes should track live. Press a key: the pane switches inside your
+`herdr --remote` attach and your local terminal comes to the front.
+
+Clear **SSH remote** to go back to local mode; changes apply immediately, no
+restart needed.
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Step 1's verify asks for a password | The key isn't installed — rerun `ssh-copy-id`. |
+| Verify asks "authenticity of host …?" | Host key not yet trusted: answer `yes` once by hand; the plugin never gets this prompt. |
+| Verify works only after a passphrase prompt | Passphrase-protected key. Either strip it (`ssh-keygen -p`, empty new passphrase) or load it into the agent (`ssh-add --apple-use-keychain` + `UseKeychain yes` in `~/.ssh/config`). |
+| Verify prints extra text before `ok` | Harmless — the plugin tolerates shell-rc noise. |
+| Keys stay blank in remote mode | Check the plugin log (`~/Library/Logs/ElgatoStreamDeck/`, plugin has debug enabled) for `herdr connection:` and `tunnel:` lines — they name the failing step. |
+| Keys go blank when an agent finishes | Not a bug: idle agents are hidden by design. Long-press to pin one. |
+
+### How it works
+
+The plugin keeps a single `ssh -N -L local.sock:remote.sock` Unix-socket
+forward alive (auto-reconnect with backoff) and points both the local `herdr`
+CLI (via `HERDR_SOCKET_PATH`) and its event subscription at the forwarded
+socket. Focusing an agent switches the pane on the server, which your
+`herdr --remote` attach mirrors, and the terminal raise still happens locally —
+so "press = focus" works exactly as in the local setup. ssh is spawned without
+a shell and the target is passed after `--`, so the settings text can't inject
+options.
+
 ## Configuration
 
 | Env var | Default | Purpose |
