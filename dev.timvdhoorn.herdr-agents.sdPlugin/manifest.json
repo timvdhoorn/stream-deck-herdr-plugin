@@ -1,7 +1,7 @@
 {
 	"$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
 	"Name": "herdr agents",
-	"Version": "0.1.0.0",
+	"Version": "0.2.0.0",
 	"Author": "Tim van der Hoorn",
 	"Description": "Live herdr agent status on your Stream Deck.",
 	"Category": "herdr",
